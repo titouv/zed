@@ -9,11 +9,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::{
-    actions, point, quad, AnyElement, App, Bounds, ClipboardItem, CursorStyle, DispatchPhase,
-    Edges, Entity, FocusHandle, Focusable, FontStyle, FontWeight, GlobalElementId, Hitbox, Hsla,
-    KeyContext, Length, MouseDownEvent, MouseEvent, MouseMoveEvent, MouseUpEvent, Point, Render,
-    Stateful, StrikethroughStyle, StyleRefinement, StyledText, Task, TextLayout, TextRun,
-    TextStyle, TextStyleRefinement,
+    actions, linear_color_stop, linear_gradient, point, quad, AnyElement, App, Bounds,
+    ClipboardItem, CursorStyle, DispatchPhase, Edges, Entity, FocusHandle, Focusable, FontStyle,
+    FontWeight, GlobalElementId, Hitbox, Hsla, KeyContext, Length, MouseDownEvent, MouseEvent,
+    MouseMoveEvent, MouseUpEvent, Point, Render, Stateful, StrikethroughStyle, StyleRefinement,
+    StyledText, Task, TextLayout, TextRun, TextStyle, TextStyleRefinement,
 };
 use language::{Language, LanguageRegistry, Rope};
 use parser::{parse_links_only, parse_markdown, MarkdownEvent, MarkdownTag, MarkdownTagEnd};
@@ -38,6 +38,16 @@ pub struct MarkdownStyle {
     pub selection_background_color: Hsla,
     pub heading: StyleRefinement,
     pub table_overflow_x_scroll: bool,
+}
+
+pub enum CodeBlockStyle {
+    Simple {
+        style: TextStyleRefinement,
+    },
+    WithHeading {
+        heading_style: TextStyleRefinement,
+        style: TextStyleRefinement,
+    },
 }
 
 impl Default for MarkdownStyle {
@@ -612,13 +622,63 @@ impl Element for MarkdownElement {
                                 None
                             };
 
-                            // This is a parent container that we can position the copy button inside.
-                            builder.push_div(div().relative().w_full(), range, markdown_end);
-
-                            let mut code_block = div()
-                                .id(("code-block", range.start))
+                            let parent_container = v_flex()
                                 .rounded_lg()
-                                .map(|mut code_block| {
+                                .relative()
+                                .border_1()
+                                .border_color(cx.theme().colors().border)
+                                .w_full()
+                                .overflow_hidden()
+                                .child(
+                                    h_flex()
+                                        .justify_between()
+                                        .border_b_1()
+                                        .border_color(cx.theme().colors().border)
+                                        .rounded_t_lg()
+                                        .bg(cx.theme().colors().editor_foreground.opacity(0.01))
+                                        .px_2()
+                                        .py_1()
+                                        .child(
+                                            h_flex()
+                                                .gap_1()
+                                                .child(
+                                                    Icon::new(IconName::Code).color(Color::Muted),
+                                                )
+                                                .child(Label::new("icon.rs"))
+                                                .child(
+                                                    Label::new("/ui/src/")
+                                                        .color(Color::Muted)
+                                                        .size(LabelSize::Small),
+                                                )
+                                                .child(
+                                                    IconButton::new(
+                                                        "open-file",
+                                                        IconName::ArrowUpRight,
+                                                    )
+                                                    .icon_size(IconSize::XSmall),
+                                                ),
+                                        )
+                                        .child(
+                                            h_flex()
+                                                .gap_1()
+                                                .child(IconButton::new(
+                                                    "expand-code",
+                                                    IconName::ExpandVertical,
+                                                ))
+                                                .child(IconButton::new("copy-code", IconName::Copy))
+                                                .child(Button::new(
+                                                    "apply-changes",
+                                                    "Apply Changes",
+                                                )),
+                                        ),
+                                );
+                            //TODO: Allow to customize the parent container style
+
+                            // This is a parent container that we can position the copy button inside.
+                            builder.push_div(parent_container, range, markdown_end);
+
+                            let mut code_block =
+                                div().id(("code-block", range.start)).map(|mut code_block| {
                                     if self.style.code_block_overflow_x_scroll {
                                         code_block.style().restrict_scroll_to_axis = Some(true);
                                         code_block.flex().overflow_x_scroll()
@@ -626,7 +686,13 @@ impl Element for MarkdownElement {
                                         code_block.w_full()
                                     }
                                 });
-                            code_block.style().refine(&self.style.code_block);
+                            // code_block.style().refine(&self.style.code_block);
+                            // TEMPORARY
+                            code_block = code_block
+                                .p_2()
+                                .relative()
+                                .bg(cx.theme().colors().editor_background)
+                                .rounded_b_lg();
                             if let Some(code_block_text_style) = &self.style.code_block.text {
                                 builder.push_text_style(code_block_text_style.to_owned());
                             }
@@ -754,69 +820,92 @@ impl Element for MarkdownElement {
                     MarkdownTagEnd::CodeBlock => {
                         builder.trim_trailing_newline();
 
+                        builder.modify_current_div(|el| {
+                            el.child(
+                                div()
+                                    .w_full()
+                                    .left_0()
+                                    .min_h_8()
+                                    .h(relative(0.2))
+                                    .absolute()
+                                    .bottom_0()
+                                    .bg(linear_gradient(
+                                        0.,
+                                        linear_color_stop(
+                                            cx.theme().colors().editor_background,
+                                            0.,
+                                        ),
+                                        linear_color_stop(
+                                            cx.theme().colors().editor_background.opacity(0.),
+                                            1.,
+                                        ),
+                                    )),
+                            )
+                        });
+
                         builder.pop_div();
                         builder.pop_code_block();
                         if self.style.code_block.text.is_some() {
                             builder.pop_text_style();
                         }
 
-                        if self.markdown.read(cx).options.copy_code_block_buttons {
-                            builder.flush_text();
-                            builder.modify_current_div(|el| {
-                                let id =
-                                    ElementId::NamedInteger("copy-markdown-code".into(), range.end);
-                                let was_copied =
-                                    self.markdown.read(cx).copied_code_blocks.contains(&id);
-                                let copy_button = div().absolute().top_1().right_1().w_5().child(
-                                    IconButton::new(
-                                        id.clone(),
-                                        if was_copied {
-                                            IconName::Check
-                                        } else {
-                                            IconName::Copy
-                                        },
-                                    )
-                                    .icon_color(Color::Muted)
-                                    .shape(ui::IconButtonShape::Square)
-                                    .tooltip(Tooltip::text("Copy Code"))
-                                    .on_click({
-                                        let id = id.clone();
-                                        let markdown = self.markdown.clone();
-                                        let code = without_fences(
-                                            parsed_markdown.source()[range.clone()].trim(),
-                                        )
-                                        .to_string();
-                                        move |_event, _window, cx| {
-                                            let id = id.clone();
-                                            markdown.update(cx, |this, cx| {
-                                                this.copied_code_blocks.insert(id.clone());
+                        // if self.markdown.read(cx).options.copy_code_block_buttons {
+                        //     builder.flush_text();
+                        //     builder.modify_current_div(|el| {
+                        //         let id =
+                        //             ElementId::NamedInteger("copy-markdown-code".into(), range.end);
+                        //         let was_copied =
+                        //             self.markdown.read(cx).copied_code_blocks.contains(&id);
+                        //         let copy_button = div().absolute().top_1().right_1().w_5().child(
+                        //             IconButton::new(
+                        //                 id.clone(),
+                        //                 if was_copied {
+                        //                     IconName::Check
+                        //                 } else {
+                        //                     IconName::Copy
+                        //                 },
+                        //             )
+                        //             .icon_color(Color::Muted)
+                        //             .shape(ui::IconButtonShape::Square)
+                        //             .tooltip(Tooltip::text("Copy Code"))
+                        //             .on_click({
+                        //                 let id = id.clone();
+                        //                 let markdown = self.markdown.clone();
+                        //                 let code = without_fences(
+                        //                     parsed_markdown.source()[range.clone()].trim(),
+                        //                 )
+                        //                 .to_string();
+                        //                 move |_event, _window, cx| {
+                        //                     let id = id.clone();
+                        //                     markdown.update(cx, |this, cx| {
+                        //                         this.copied_code_blocks.insert(id.clone());
 
-                                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                                    code.clone(),
-                                                ));
+                        //                         cx.write_to_clipboard(ClipboardItem::new_string(
+                        //                             code.clone(),
+                        //                         ));
 
-                                                cx.spawn(|this, cx| async move {
-                                                    cx.background_executor()
-                                                        .timer(Duration::from_secs(2))
-                                                        .await;
+                        //                         cx.spawn(|this, cx| async move {
+                        //                             cx.background_executor()
+                        //                                 .timer(Duration::from_secs(2))
+                        //                                 .await;
 
-                                                    cx.update(|cx| {
-                                                        this.update(cx, |this, cx| {
-                                                            this.copied_code_blocks.remove(&id);
-                                                            cx.notify();
-                                                        })
-                                                    })
-                                                    .ok();
-                                                })
-                                                .detach();
-                                            });
-                                        }
-                                    }),
-                                );
+                        //                             cx.update(|cx| {
+                        //                                 this.update(cx, |this, cx| {
+                        //                                     this.copied_code_blocks.remove(&id);
+                        //                                     cx.notify();
+                        //                                 })
+                        //                             })
+                        //                             .ok();
+                        //                         })
+                        //                         .detach();
+                        //                     });
+                        //                 }
+                        //             }),
+                        //         );
 
-                                el.child(copy_button)
-                            });
-                        }
+                        //         el.child(copy_button)
+                        //     });
+                        // }
 
                         // Pop the parent container.
                         builder.pop_div();
