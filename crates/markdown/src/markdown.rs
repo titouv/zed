@@ -622,58 +622,71 @@ impl Element for MarkdownElement {
                                 None
                             };
 
-                            let parent_container = v_flex()
-                                .rounded_lg()
-                                .relative()
-                                .border_1()
-                                .border_color(cx.theme().colors().border)
-                                .w_full()
-                                .overflow_hidden()
+                            let codeblock_header = h_flex()
+                                .py_1()
+                                .pl_2()
+                                .pr_1()
+                                .justify_between()
+                                .border_b_1()
+                                .border_color(cx.theme().colors().border_variant)
+                                .bg(cx.theme().colors().editor_foreground.opacity(0.01))
+                                .rounded_t_lg()
                                 .child(
                                     h_flex()
-                                        .justify_between()
-                                        .border_b_1()
-                                        .border_color(cx.theme().colors().border)
-                                        .rounded_t_lg()
-                                        .bg(cx.theme().colors().editor_foreground.opacity(0.01))
-                                        .px_2()
-                                        .py_1()
+                                        .gap_1()
+                                        .child(
+                                            Icon::new(IconName::FileRust)
+                                                .color(Color::Muted)
+                                                .size(IconSize::Small),
+                                        )
                                         .child(
                                             h_flex()
-                                                .gap_1()
-                                                .child(
-                                                    Icon::new(IconName::Code).color(Color::Muted),
-                                                )
-                                                .child(Label::new("icon.rs"))
+                                                .pl_1()
+                                                .gap_0p5()
+                                                .child(Label::new("icon.rs").size(LabelSize::Small))
                                                 .child(
                                                     Label::new("/ui/src/")
                                                         .color(Color::Muted)
                                                         .size(LabelSize::Small),
-                                                )
-                                                .child(
-                                                    IconButton::new(
-                                                        "open-file",
-                                                        IconName::ArrowUpRight,
-                                                    )
-                                                    .icon_size(IconSize::XSmall),
                                                 ),
                                         )
                                         .child(
-                                            h_flex()
-                                                .gap_1()
-                                                .child(IconButton::new(
-                                                    "expand-code",
-                                                    IconName::ExpandVertical,
-                                                ))
-                                                .child(IconButton::new("copy-code", IconName::Copy))
-                                                .child(Button::new(
-                                                    "apply-changes",
-                                                    "Apply Changes",
-                                                )),
+                                            IconButton::new("open-file", IconName::ArrowUpRight)
+                                                .icon_color(Color::Muted)
+                                                .icon_size(IconSize::XSmall)
+                                                .tooltip(Tooltip::text("Go To File")),
+                                        ),
+                                )
+                                .child(
+                                    h_flex()
+                                        .gap_0p5()
+                                        .child(
+                                            IconButton::new(
+                                                "expand-code",
+                                                IconName::ExpandVertical,
+                                            )
+                                            .icon_size(IconSize::Small)
+                                            .tooltip(Tooltip::text("Expand Code")),
+                                        )
+                                        .child(
+                                            IconButton::new("copy-code", IconName::Copy)
+                                                .icon_size(IconSize::Small)
+                                                .tooltip(Tooltip::text("Copy Code")),
+                                        )
+                                        .child(
+                                            Button::new("apply-changes", "Apply")
+                                                .label_size(LabelSize::Small),
                                         ),
                                 );
-                            //TODO: Allow to customize the parent container style
 
+                            let parent_container = v_flex()
+                                .rounded_lg()
+                                .relative()
+                                .border_1()
+                                .border_color(cx.theme().colors().border_variant)
+                                .child(codeblock_header);
+
+                            //TODO: Allow to customize the parent container style
                             // This is a parent container that we can position the copy button inside.
                             builder.push_div(parent_container, range, markdown_end);
 
