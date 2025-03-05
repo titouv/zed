@@ -680,8 +680,9 @@ impl Element for MarkdownElement {
                                 );
 
                             let parent_container = v_flex()
-                                .rounded_lg()
                                 .relative()
+                                .overflow_hidden()
+                                .rounded_lg()
                                 .border_1()
                                 .border_color(cx.theme().colors().border_variant)
                                 .child(codeblock_header);
@@ -834,6 +835,12 @@ impl Element for MarkdownElement {
                     MarkdownTagEnd::CodeBlock => {
                         builder.trim_trailing_newline();
 
+                        builder.pop_div();
+                        builder.pop_code_block();
+                        if self.style.code_block.text.is_some() {
+                            builder.pop_text_style();
+                        }
+
                         builder.modify_current_div(|el| {
                             el.child(
                                 div()
@@ -857,12 +864,6 @@ impl Element for MarkdownElement {
                                     )),
                             )
                         });
-
-                        builder.pop_div();
-                        builder.pop_code_block();
-                        if self.style.code_block.text.is_some() {
-                            builder.pop_text_style();
-                        }
 
                         // if self.markdown.read(cx).options.copy_code_block_buttons {
                         //     builder.flush_text();
