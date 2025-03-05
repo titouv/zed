@@ -848,7 +848,7 @@ impl Element for MarkdownElement {
                                     .bottom_0()
                                     .left_0()
                                     .w_full()
-                                    .min_h_8()
+                                    .min_h_16()
                                     .h(relative(0.2))
                                     .rounded_b_lg()
                                     .bg(linear_gradient(
