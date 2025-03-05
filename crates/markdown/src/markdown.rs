@@ -703,6 +703,7 @@ impl Element for MarkdownElement {
                             // TEMPORARY
                             code_block = code_block
                                 .p_2()
+                                .max_h_40()
                                 .relative()
                                 .bg(cx.theme().colors().editor_background)
                                 .rounded_b_lg();
@@ -836,12 +837,13 @@ impl Element for MarkdownElement {
                         builder.modify_current_div(|el| {
                             el.child(
                                 div()
-                                    .w_full()
-                                    .left_0()
-                                    .min_h_8()
-                                    .h(relative(0.2))
                                     .absolute()
                                     .bottom_0()
+                                    .left_0()
+                                    .w_full()
+                                    .min_h_8()
+                                    .h(relative(0.2))
+                                    .rounded_b_lg()
                                     .bg(linear_gradient(
                                         0.,
                                         linear_color_stop(
