@@ -596,7 +596,7 @@ wasmtime = { version = "29", default-features = false, features = [
 ] }
 wasmtime-wasi = "29"
 which = "6.0.0"
-windows-core = "0.58"
+windows-core = "0.60"
 wit-component = "0.221"
 zed_llm_client = "0.4"
 zstd = "0.11"
