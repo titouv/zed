@@ -1055,7 +1055,7 @@ impl Worktree {
             Worktree::Local(this) => {
                 let path = Arc::from(path);
                 let snapshot = this.snapshot();
-                cx.background_spawn(async move {
+                cx.spawn(|cx| async move {
                     if let Some(repo) = snapshot.repository_for_path(&path) {
                         if let Some((repo_path, git_repo)) = repo
                             .relativize(&path)
@@ -1064,7 +1064,8 @@ impl Worktree {
                         {
                             let string = git_repo
                                 .repo_ptr
-                                .load_index_text(&repo_path)
+                                .load_index_text(repo_path, cx)
+                                .await
                                 .map(|(string, _)| string);
                             return Ok(string);
                         }
@@ -1083,14 +1084,14 @@ impl Worktree {
             Worktree::Local(this) => {
                 let path = Arc::from(path);
                 let snapshot = this.snapshot();
-                cx.background_spawn(async move {
+                cx.spawn(|cx| async move {
                     if let Some(repo) = snapshot.repository_for_path(&path) {
                         if let Some((repo_path, git_repo)) = repo
                             .relativize(&path)
                             .log_err()
                             .zip(snapshot.git_repositories.get(&repo.work_directory_id))
                         {
-                            return Ok(git_repo.repo_ptr.load_committed_text(&repo_path));
+                            return Ok(git_repo.repo_ptr.load_committed_text(repo_path, cx).await);
                         }
                     }
                     Err(anyhow!("No repository found for {path:?}"))
@@ -5524,7 +5525,9 @@ impl BackgroundScanner {
         state.repository_scans.insert(
             path_key.clone(),
             self.executor.spawn(async move {
-                update_branches(&job_state, &mut local_repository).log_err();
+                update_branches(&job_state, &mut local_repository)
+                    .await
+                    .log_err();
                 log::trace!("updating git statuses for repo {repository_name}",);
                 let t0 = Instant::now();
 
@@ -5669,11 +5672,11 @@ fn send_status_update_inner(
         .is_ok()
 }
 
-fn update_branches(
+async fn update_branches(
     state: &Mutex<BackgroundScannerState>,
     repository: &mut LocalRepositoryEntry,
 ) -> Result<()> {
-    let branches = repository.repo().branches()?;
+    let branches = repository.repo().branches().await?;
     let snapshot = state.lock().snapshot.snapshot.clone();
     let mut repository = snapshot
         .repository(repository.work_directory.path_key())
