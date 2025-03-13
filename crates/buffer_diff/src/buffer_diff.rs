@@ -983,7 +983,7 @@ impl BufferDiff {
             _ => Some(text::Anchor::MIN..text::Anchor::MAX),
         };
 
-        if read_index_version.is_some_and(|version| version.is_outdated()) {
+        if !read_index_version.is_some_and(|version| version.is_outdated()) {
             if let Some(cleared_range) = self.clear_pending_hunks() {
                 if let Some(changed_range) = changed_range.as_mut() {
                     changed_range.start = changed_range.start.min(&cleared_range.start, &buffer);
