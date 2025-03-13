@@ -263,14 +263,7 @@ impl BufferDiffState {
                 unstaged_diff.as_ref().zip(new_unstaged_diff.clone())
             {
                 unstaged_diff.update(&mut cx, |diff, cx| {
-                    diff.set_snapshot(
-                        &buffer,
-                        new_unstaged_diff,
-                        language_changed,
-                        None,
-                        read_index_version,
-                        cx,
-                    )
+                    diff.set_snapshot(&buffer, new_unstaged_diff, language_changed, None, None, cx)
                 })?
             } else {
                 None
@@ -285,7 +278,7 @@ impl BufferDiffState {
                         new_uncommitted_diff,
                         language_changed,
                         unstaged_changed_range,
-                        None,
+                        read_index_version,
                         cx,
                     );
                 })?;

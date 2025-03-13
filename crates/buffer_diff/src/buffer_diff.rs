@@ -196,6 +196,9 @@ impl BufferDiffInner {
         buffer: &text::BufferSnapshot,
         file_exists: bool,
     ) -> Option<Rope> {
+        eprintln!(
+            "-------------------------  stage_or_unstage_hunks  -------------------------------"
+        );
         let head_text = self
             .base_text_exists
             .then(|| self.base_text.as_rope().clone());
@@ -367,6 +370,14 @@ impl BufferDiffInner {
         new_index_text.append(index_cursor.suffix());
         drop(old_pending_hunks);
         self.pending_hunks = pending_hunks;
+        eprintln!(
+            "recalculated pending hunks = {}",
+            self.pending_hunks.iter().count()
+        );
+        eprintln!(
+            "recalculated new_index_text = {}",
+            new_index_text.to_string()
+        );
         Some(new_index_text)
     }
 
@@ -832,6 +843,7 @@ impl BufferDiff {
     }
 
     pub fn failed_to_persist(&mut self, cx: &mut Context<Self>) {
+        eprintln!("clear_pending_hunks called from FAILED_TO_PERSIST");
         if let Some(changed_range) = self.clear_pending_hunks() {
             cx.emit(BufferDiffEvent::DiffChanged {
                 changed_range: Some(changed_range),
@@ -844,6 +856,7 @@ impl BufferDiff {
             &mut self.inner.pending_hunks,
             SumTree::from_summary(DiffHunkSummary::default()),
         );
+        eprintln!("clear_pending_hunks cleared all hunks now.");
         let (first, last) = hunks.first().zip(hunks.last())?;
         Some(first.buffer_range.start..last.buffer_range.end)
     }
@@ -983,7 +996,18 @@ impl BufferDiff {
             _ => Some(text::Anchor::MIN..text::Anchor::MAX),
         };
 
-        if !read_index_version.is_some_and(|version| version.is_outdated()) {
+        if read_index_version.is_none() {
+            dbg!(std::backtrace::Backtrace::force_capture());
+            dbg!("read_index_version is none1");
+            dbg!("read_index_version is none2");
+            dbg!("read_index_version is none3");
+            dbg!("read_index_version is none4");
+            dbg!("read_index_version is none5");
+        }
+
+        // TODO: this is git specific but this function isn't, refac this
+        if read_index_version.map_or(true, |version| version.is_latest_version()) {
+            eprintln!("clear_pending_hunks called from SET_STATE");
             if let Some(cleared_range) = self.clear_pending_hunks() {
                 if let Some(changed_range) = changed_range.as_mut() {
                     changed_range.start = changed_range.start.min(&cleared_range.start, &buffer);

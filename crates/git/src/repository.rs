@@ -155,7 +155,7 @@ pub enum ResetMode {
 
 /// Track whether we did override the index text after reading it.
 ///
-/// After this is created, you can call `is_outdated` to see if we wrote
+/// After this is created, you can call `is_latest_version` to see if we wrote
 ///
 /// Note: this doesn't account for external processis writing to the `index`, but it's still useful
 /// if the invariant we want to hold is only dependent on our writes (currently, it is).
@@ -174,8 +174,20 @@ impl IndexTextVersion {
     }
 
     /// Returns `true` if the index was overridden by ourselves.
-    pub fn is_outdated(&self) -> bool {
-        self.read_value != self.version_reference.load(AtomicOrdering::Relaxed)
+    pub fn is_latest_version(&self) -> bool {
+        let a = self.read_value;
+        let b = self.version_reference.load(AtomicOrdering::Relaxed);
+
+        eprintln!(
+            "read_value = {a}, atomic version = {b}  => {}",
+            if a == b {
+                "EQUALS, CLEARING HUNKS"
+            } else {
+                "NOT EQUALS, NOT CLEARING HUNKS"
+            }
+        );
+
+        a == b
     }
 }
 
@@ -484,7 +496,7 @@ impl GitRepository for RealGitRepository {
             check_path_to_repo_path_errors(path)?;
 
             let mut index = repo.index()?;
-            index.read(false)?;
+            index.read(true)?;
             let oid = match index.get_path(path, STAGE_NORMAL) {
                 Some(entry) if entry.mode != GIT_MODE_SYMLINK => entry.id,
                 _ => return Ok(None),
@@ -499,10 +511,19 @@ impl GitRepository for RealGitRepository {
 
         cx.background_spawn(async move {
             let repo = repo.lock().await;
-            let version = IndexTextVersion::new(index_version);
+            let version = IndexTextVersion::new(index_version.clone());
 
             match logic(&repo, &path) {
-                Ok(value) => return value.map(|value| (value, version)),
+                Ok(value) => {
+                    return value.map(|value| {
+                        eprintln!(
+                            "read index text, version = {}",
+                            index_version.load(AtomicOrdering::Relaxed)
+                        );
+                        eprintln!("read index text, contents = {}", value);
+                        (value, version)
+                    })
+                }
                 Err(err) => {
                     log::error!("Error loading index text: {:?}", err);
                     None
@@ -542,9 +563,16 @@ impl GitRepository for RealGitRepository {
         let repo_mutex = self.repository.clone();
 
         cx.background_spawn(async move {
-            let _guard = repo_mutex.lock();
-            index_version.fetch_add(1, AtomicOrdering::Relaxed);
+            let _guard = repo_mutex.lock().await;
+            let x_minus_one = index_version.fetch_add(1, AtomicOrdering::Relaxed);
             let working_directory = working_directory?;
+
+            if let Some(content) = content.as_ref() {
+                eprintln!("set index text VERSIOOON =<><> {}", x_minus_one + 1);
+                eprintln!("set index text => {}", content);
+            } else {
+                eprintln!("set index text: NONE!!!!");
+            }
 
             if let Some(content) = content {
                 let mut child = new_smol_command(&git_binary_path)
