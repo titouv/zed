@@ -12,6 +12,7 @@ use parking_lot::Mutex;
 use rope::Rope;
 use schemars::JsonSchema;
 use serde::Deserialize;
+use smol::lock::Mutex as AsyncMutex;
 use std::{
     borrow::Borrow,
     cmp::Ordering,
@@ -23,7 +24,6 @@ use std::{
     },
 };
 use sum_tree::MapSeekTarget;
-use tokio::sync::Mutex as AsyncMutex;
 use util::command::new_smol_command;
 use util::ResultExt;
 
@@ -173,7 +173,7 @@ impl IndexTextVersion {
         }
     }
 
-    /// Returns `true` if the index was overriden by ourselves.
+    /// Returns `true` if the index was overridden by ourselves.
     pub fn is_outdated(&self) -> bool {
         self.read_value != self.version_reference.load(AtomicOrdering::Relaxed)
     }
@@ -358,7 +358,7 @@ impl RealGitRepository {
 
     fn working_directory(&self) -> Result<PathBuf> {
         self.repository
-            .blocking_lock()
+            .lock_blocking()
             .workdir()
             .context("failed to read git work directory")
             .map(Path::to_path_buf)
@@ -370,18 +370,18 @@ const GIT_MODE_SYMLINK: u32 = 0o120000;
 
 impl GitRepository for RealGitRepository {
     fn reload_index(&self) {
-        if let Ok(mut index) = self.repository.blocking_lock().index() {
+        if let Ok(mut index) = self.repository.lock_blocking().index() {
             index.read(false).log_err();
         }
     }
 
     fn path(&self) -> PathBuf {
-        let repo = self.repository.blocking_lock();
+        let repo = self.repository.lock_blocking();
         repo.path().into()
     }
 
     fn main_repository_path(&self) -> PathBuf {
-        let repo = self.repository.blocking_lock();
+        let repo = self.repository.lock_blocking();
         repo.commondir().into()
     }
 
@@ -601,7 +601,7 @@ impl GitRepository for RealGitRepository {
     }
 
     fn remote_url(&self, name: &str) -> Option<String> {
-        let repo = self.repository.blocking_lock();
+        let repo = self.repository.lock_blocking();
         let remote = repo.find_remote(name).ok()?;
         remote.url().map(|url| url.to_string())
     }
@@ -609,7 +609,7 @@ impl GitRepository for RealGitRepository {
     fn head_sha(&self) -> Option<String> {
         Some(
             self.repository
-                .blocking_lock()
+                .lock_blocking()
                 .head()
                 .ok()?
                 .target()?
@@ -618,7 +618,7 @@ impl GitRepository for RealGitRepository {
     }
 
     fn merge_head_shas(&self) -> Vec<String> {
-        let mut repo = self.repository.blocking_lock();
+        let mut repo = self.repository.lock_blocking();
 
         let mut shas = Vec::default();
         repo.mergehead_foreach(|oid| {
@@ -640,7 +640,7 @@ impl GitRepository for RealGitRepository {
     fn status(&self, path_prefixes: &[RepoPath]) -> Result<GitStatus> {
         let working_directory = self
             .repository
-            .blocking_lock()
+            .lock_blocking()
             .workdir()
             .context("failed to read git work directory")?
             .to_path_buf();
