@@ -1,4 +1,3 @@
-use std::fmt::Write as _;
 use std::io::Write;
 use std::sync::Arc;
 
@@ -897,6 +896,8 @@ impl Thread {
 
         self.attached_tracked_files_state(&mut request.messages, cx);
 
+        dbg!(&request.messages);
+
         request
     }
 
@@ -905,33 +906,32 @@ impl Thread {
         messages: &mut Vec<LanguageModelRequestMessage>,
         cx: &App,
     ) {
-        const STALE_FILES_HEADER: &str = "These files changed since last read:";
-
-        let mut stale_message = String::new();
-
+        let mut content = Vec::new();
+        // todo! remove if not needed
         let action_log = self.action_log.read(cx);
 
-        for stale_file in action_log.stale_buffers(cx) {
-            let Some(file) = stale_file.read(cx).file() else {
-                continue;
-            };
+        let tracked_buffers = action_log.tracked_buffers();
 
-            if stale_message.is_empty() {
-                write!(&mut stale_message, "{}", STALE_FILES_HEADER).ok();
-            }
-
-            writeln!(&mut stale_message, "- {}", file.path().display()).ok();
+        if tracked_buffers.len() > 0 {
+            content.push("Opened files:\n".into());
         }
 
-        let mut content = Vec::with_capacity(2);
+        // todo! az parallel
+        // todo! cache contents?
+        // todo! cache breakpoint
+        for buffer in tracked_buffers {
+            let buffer = buffer.read(cx);
+            let file_path = buffer.file().map_or("untitled".to_string(), |file| {
+                file.path().display().to_string()
+            });
+            let contents = buffer.text();
 
-        if !stale_message.is_empty() {
-            content.push(stale_message.into());
+            content.push(format!("\n{}\n```\n{}\n```\n", file_path, contents).into());
         }
 
         if action_log.has_edited_files_since_project_diagnostics_check() {
             content.push(
-                "When you're done making changes, make sure to check project diagnostics and fix all errors AND warnings you introduced!".into(),
+                "\n\nWhen you're done making changes, make sure to check project diagnostics and fix all errors AND warnings you introduced!".into(),
             );
         }
 

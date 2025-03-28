@@ -320,7 +320,7 @@ pub fn attach_context_to_message(
     let mut context_chunks = Vec::with_capacity(capacity);
 
     if !file_context.is_empty() {
-        context_chunks.push("The following files are available:\n");
+        context_chunks.push("The following files were added by the user:\n");
         for context in &file_context {
             for chunk in &context.text {
                 context_chunks.push(&chunk);

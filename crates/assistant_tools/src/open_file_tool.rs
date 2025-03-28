@@ -4,7 +4,6 @@ use std::sync::Arc;
 use anyhow::{anyhow, Result};
 use assistant_tool::{ActionLog, Tool};
 use gpui::{App, Entity, Task};
-use itertools::Itertools;
 use language_model::LanguageModelRequestMessage;
 use project::Project;
 use schemars::JsonSchema;
@@ -13,8 +12,8 @@ use ui::IconName;
 use util::markdown::MarkdownString;
 
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
-pub struct ReadFileToolInput {
-    /// The relative path of the file to read.
+pub struct OpenFileToolInput {
+    /// The relative path of the file to open.
     ///
     /// This path should never be absolute, and the first component
     /// of the path should always be a root directory in a project.
@@ -29,21 +28,13 @@ pub struct ReadFileToolInput {
     /// If you wanna access `file.txt` in `directory2`, you should use the path `directory2/file.txt`.
     /// </example>
     pub path: Arc<Path>,
-
-    /// Optional line number to start reading on (1-based index)
-    #[serde(default)]
-    pub start_line: Option<usize>,
-
-    /// Optional line number to end reading on (1-based index)
-    #[serde(default)]
-    pub end_line: Option<usize>,
 }
 
-pub struct ReadFileTool;
+pub struct OpenFileTool;
 
-impl Tool for ReadFileTool {
+impl Tool for OpenFileTool {
     fn name(&self) -> String {
-        "read-file".into()
+        "open-file".into()
     }
 
     fn needs_confirmation(&self) -> bool {
@@ -51,7 +42,7 @@ impl Tool for ReadFileTool {
     }
 
     fn description(&self) -> String {
-        include_str!("./read_file_tool/description.md").into()
+        include_str!("./open_file_tool/description.md").into()
     }
 
     fn icon(&self) -> IconName {
@@ -59,17 +50,17 @@ impl Tool for ReadFileTool {
     }
 
     fn input_schema(&self) -> serde_json::Value {
-        let schema = schemars::schema_for!(ReadFileToolInput);
+        let schema = schemars::schema_for!(OpenFileToolInput);
         serde_json::to_value(&schema).unwrap()
     }
 
     fn ui_text(&self, input: &serde_json::Value) -> String {
-        match serde_json::from_value::<ReadFileToolInput>(input.clone()) {
+        match serde_json::from_value::<OpenFileToolInput>(input.clone()) {
             Ok(input) => {
                 let path = MarkdownString::inline_code(&input.path.display().to_string());
-                format!("Read file {path}")
+                format!("Open {path}")
             }
-            Err(_) => "Read file".to_string(),
+            Err(_) => "Open file".to_string(),
         }
     }
 
@@ -81,7 +72,7 @@ impl Tool for ReadFileTool {
         action_log: Entity<ActionLog>,
         cx: &mut App,
     ) -> Task<Result<String>> {
-        let input = match serde_json::from_value::<ReadFileToolInput>(input) {
+        let input = match serde_json::from_value::<OpenFileToolInput>(input) {
             Ok(input) => input,
             Err(err) => return Task::ready(Err(anyhow!(err))),
         };
@@ -100,27 +91,11 @@ impl Tool for ReadFileTool {
                 })?
                 .await?;
 
-            let result = buffer.read_with(cx, |buffer, _cx| {
-                let text = buffer.text();
-                if input.start_line.is_some() || input.end_line.is_some() {
-                    let start = input.start_line.unwrap_or(1);
-                    let lines = text.split('\n').skip(start - 1);
-                    if let Some(end) = input.end_line {
-                        let count = end.saturating_sub(start);
-                        Itertools::intersperse(lines.take(count), "\n").collect()
-                    } else {
-                        Itertools::intersperse(lines, "\n").collect()
-                    }
-                } else {
-                    text
-                }
-            })?;
-
             action_log.update(cx, |log, cx| {
-                log.buffer_read(buffer, cx);
+                log.buffer_opened(buffer, cx);
             })?;
 
-            anyhow::Ok(result)
+            anyhow::Ok("Opened".to_string())
         })
     }
 }

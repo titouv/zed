@@ -99,8 +99,8 @@ impl ActionLog {
         }
     }
 
-    /// Track a buffer as read, so we can notify the model about user edits.
-    pub fn buffer_read(&mut self, buffer: Entity<Buffer>, cx: &mut Context<Self>) {
+    /// Tracks a buffer as open so we can include it in context
+    pub fn buffer_opened(&mut self, buffer: Entity<Buffer>, cx: &mut Context<Self>) {
         let tracked_buffer = self.tracked_buffers.entry(buffer.clone()).or_default();
         tracked_buffer.version = buffer.read(cx).version();
     }
@@ -116,17 +116,13 @@ impl ActionLog {
         self.edited_since_project_diagnostics_check = true;
     }
 
+    pub fn tracked_buffers(&self) -> impl ExactSizeIterator<Item = &Entity<Buffer>> {
+        self.tracked_buffers.keys()
+    }
+
     /// Notifies a diagnostics check
     pub fn checked_project_diagnostics(&mut self) {
         self.edited_since_project_diagnostics_check = false;
-    }
-
-    /// Iterate over buffers changed since last read or edited by the model
-    pub fn stale_buffers<'a>(&'a self, cx: &'a App) -> impl Iterator<Item = &'a Entity<Buffer>> {
-        self.tracked_buffers
-            .iter()
-            .filter(|(buffer, tracked)| tracked.version != buffer.read(cx).version)
-            .map(|(buffer, _)| buffer)
     }
 
     /// Returns true if any files have been edited since the last project diagnostics check
