@@ -10,7 +10,10 @@ use assistant_tool::ToolWorkingSet;
 use convert_case::{Case, Casing as _};
 use editor::Editor;
 use fs::Fs;
-use gpui::{prelude::*, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, Subscription};
+use gpui::{
+    prelude::*, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, Subscription,
+    WeakEntity,
+};
 use settings::{update_settings_file, Settings as _};
 use ui::{prelude::*, ListItem, ListItemSpacing, ListSeparator, Navigable, NavigableEntry};
 use workspace::{ModalView, Workspace};
@@ -18,7 +21,7 @@ use workspace::{ModalView, Workspace};
 use crate::assistant_configuration::manage_profiles_modal::profile_modal_header::ProfileModalHeader;
 use crate::assistant_configuration::profile_picker::{ProfilePicker, ProfilePickerDelegate};
 use crate::assistant_configuration::tool_picker::{ToolPicker, ToolPickerDelegate};
-use crate::{AssistantPanel, ManageProfiles};
+use crate::{AssistantPanel, ManageProfiles, ThreadStore};
 
 enum Mode {
     ChooseProfile {
@@ -80,6 +83,7 @@ pub struct NewProfileMode {
 pub struct ManageProfilesModal {
     fs: Arc<dyn Fs>,
     tools: Arc<ToolWorkingSet>,
+    thread_store: WeakEntity<ThreadStore>,
     focus_handle: FocusHandle,
     mode: Mode,
 }
@@ -93,9 +97,12 @@ impl ManageProfilesModal {
         workspace.register_action(|workspace, _: &ManageProfiles, window, cx| {
             if let Some(panel) = workspace.panel::<AssistantPanel>(cx) {
                 let fs = workspace.app_state().fs.clone();
-                let thread_store = panel.read(cx).thread_store().read(cx);
-                let tools = thread_store.tools();
-                workspace.toggle_modal(window, cx, |window, cx| Self::new(fs, tools, window, cx))
+                let thread_store = panel.read(cx).thread_store();
+                let tools = thread_store.read(cx).tools();
+                let thread_store = thread_store.downgrade();
+                workspace.toggle_modal(window, cx, |window, cx| {
+                    Self::new(fs, tools, thread_store, window, cx)
+                })
             }
         });
     }
@@ -103,6 +110,7 @@ impl ManageProfilesModal {
     pub fn new(
         fs: Arc<dyn Fs>,
         tools: Arc<ToolWorkingSet>,
+        thread_store: WeakEntity<ThreadStore>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -111,6 +119,7 @@ impl ManageProfilesModal {
         Self {
             fs,
             tools,
+            thread_store,
             focus_handle,
             mode: Mode::choose_profile(window, cx),
         }
@@ -168,6 +177,7 @@ impl ManageProfilesModal {
             let delegate = ToolPickerDelegate::new(
                 self.fs.clone(),
                 self.tools.clone(),
+                self.thread_store.clone(),
                 profile_id.clone(),
                 profile,
                 cx,
@@ -297,9 +307,27 @@ impl ManageProfilesModal {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let settings = AssistantSettings::get_global(cx);
+
+        let base_profile_name = mode.base_profile_id.as_ref().map(|base_profile_id| {
+            settings
+                .profiles
+                .get(base_profile_id)
+                .map(|profile| profile.name.clone())
+                .unwrap_or_else(|| "Unknown".into())
+        });
+
         v_flex()
             .id("new-profile")
             .track_focus(&self.focus_handle(cx))
+            .child(ProfileModalHeader::new(
+                match base_profile_name {
+                    Some(base_profile) => format!("Fork {base_profile}"),
+                    None => "New Profile".into(),
+                },
+                IconName::Plus,
+            ))
+            .child(ListSeparator)
             .child(h_flex().p_2().child(mode.name_editor.clone()))
     }
 
