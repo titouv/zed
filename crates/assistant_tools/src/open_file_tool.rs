@@ -28,6 +28,12 @@ pub struct OpenFileToolInput {
     /// If you wanna access `file.txt` in `directory2`, you should use the path `directory2/file.txt`.
     /// </example>
     pub path: Arc<Path>,
+
+    /// Line number to start reading from (1-based index)
+    pub start_line: usize,
+
+    /// Line number to end reading at (1-based index)
+    pub end_line: usize,
 }
 
 pub struct OpenFileTool;
@@ -58,7 +64,8 @@ impl Tool for OpenFileTool {
         match serde_json::from_value::<OpenFileToolInput>(input.clone()) {
             Ok(input) => {
                 let path = MarkdownString::inline_code(&input.path.display().to_string());
-                format!("Open {path}")
+                let range_text = format!(" (lines {}-{})", input.start_line, input.end_line);
+                format!("Open {}{}", path, range_text)
             }
             Err(_) => "Open file".to_string(),
         }
@@ -92,7 +99,7 @@ impl Tool for OpenFileTool {
                 .await?;
 
             action_log.update(cx, |log, cx| {
-                log.buffer_opened(buffer, cx);
+                log.buffer_opened(buffer, Some(input.start_line), Some(input.end_line), cx);
             })?;
 
             anyhow::Ok("Opened".to_string())

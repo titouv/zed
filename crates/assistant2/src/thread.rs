@@ -11,6 +11,7 @@ use futures::future::Shared;
 use futures::{FutureExt, StreamExt as _};
 use git;
 use gpui::{App, AppContext, Context, Entity, EventEmitter, SharedString, Task, WeakEntity};
+use language::Point;
 use language_model::{
     LanguageModel, LanguageModelCompletionEvent, LanguageModelRegistry, LanguageModelRequest,
     LanguageModelRequestMessage, LanguageModelRequestTool, LanguageModelToolResult,
@@ -916,17 +917,67 @@ impl Thread {
             content.push("Opened files:\n".into());
         }
 
-        // todo! az parallel
-        // todo! cache contents?
-        // todo! cache breakpoint
-        for buffer in tracked_buffers {
-            let buffer = buffer.read(cx);
+        for buffer_entity in tracked_buffers {
+            let buffer = buffer_entity.read(cx);
             let file_path = buffer.file().map_or("untitled".to_string(), |file| {
                 file.path().display().to_string()
             });
-            let contents = buffer.text();
 
-            content.push(format!("\n{}\n```\n{}\n```\n", file_path, contents).into());
+            // Get all tracked ranges for this buffer
+            let ranges = action_log.tracked_buffer_ranges(buffer_entity);
+
+            if ranges.is_empty()
+                || (ranges.len() == 1 && ranges[0].0.is_none() && ranges[0].1.is_none())
+            {
+                // No specific ranges - include the entire file
+                content.push(format!("\n{}\n```\n{}\n```\n", file_path, buffer.text()).into());
+            } else {
+                // For each range, create a separate code block
+                for (start_line, end_line) in ranges.iter() {
+                    // Convert usize to u32 for buffer API
+                    let start = start_line
+                        .map(|l| (l.saturating_sub(1)) as u32)
+                        .unwrap_or(0);
+                    let end = end_line
+                        .map(|l| l as u32)
+                        .unwrap_or_else(|| buffer.max_point().row + 1);
+
+                    if start <= buffer.max_point().row {
+                        // Create a range from the start line (column 0) to the end of the end line
+                        let range_start = Point::new(start, 0);
+                        let range_end = if end <= buffer.max_point().row {
+                            Point::new(end, buffer.line_len(end))
+                        } else {
+                            buffer.max_point()
+                        };
+
+                        // Use the buffer's text_for_range API to get the exact line range
+                        let range_content = buffer
+                            .text_for_range(range_start..range_end)
+                            .collect::<String>();
+
+                        // Only include non-empty content
+                        if !range_content.is_empty() {
+                            // Build description for this range
+                            let range_desc = match (start_line, end_line) {
+                                (Some(start), Some(end)) => format!(" (lines {}-{})", start, end),
+                                (Some(start), None) => format!(" (from line {})", start),
+                                (None, Some(end)) => format!(" (up to line {})", end),
+                                (None, None) => "".to_string(),
+                            };
+
+                            // Add separate code block for each range
+                            content.push(
+                                format!(
+                                    "\n{}{}\n```\n{}\n```\n",
+                                    file_path, range_desc, range_content
+                                )
+                                .into(),
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         if action_log.has_edited_files_since_project_diagnostics_check() {

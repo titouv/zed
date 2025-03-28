@@ -84,9 +84,20 @@ pub struct ActionLog {
     edited_since_project_diagnostics_check: bool,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct TrackedBuffer {
     version: clock::Global,
+    // Store multiple ranges per buffer
+    ranges: Vec<(Option<usize>, Option<usize>)>, // (start_line, end_line) pairs
+}
+
+impl Default for TrackedBuffer {
+    fn default() -> Self {
+        Self {
+            version: clock::Global::default(),
+            ranges: Vec::new(),
+        }
+    }
 }
 
 impl ActionLog {
@@ -100,9 +111,68 @@ impl ActionLog {
     }
 
     /// Tracks a buffer as open so we can include it in context
-    pub fn buffer_opened(&mut self, buffer: Entity<Buffer>, cx: &mut Context<Self>) {
+    pub fn buffer_opened(
+        &mut self, 
+        buffer: Entity<Buffer>, 
+        start_line: Option<usize>, 
+        end_line: Option<usize>, 
+        cx: &mut Context<Self>
+    ) {
         let tracked_buffer = self.tracked_buffers.entry(buffer.clone()).or_default();
         tracked_buffer.version = buffer.read(cx).version();
+        
+        // If this is a full-file request (no specific range), clear all existing ranges
+        // and just track the whole file
+        if start_line.is_none() && end_line.is_none() {
+            if tracked_buffer.ranges.is_empty() {
+                tracked_buffer.ranges.push((None, None));
+            }
+            return;
+        }
+        
+        // Convert the range bounds to actual values for comparison
+        let new_start = start_line.unwrap_or(1);
+        let new_end = end_line.unwrap_or(usize::MAX);
+        
+        // Check for overlaps with existing ranges
+        let mut overlapping_indices = Vec::new();
+        let mut min_start = new_start;
+        let mut max_end = new_end;
+        
+        for (i, (existing_start, existing_end)) in tracked_buffer.ranges.iter().enumerate() {
+            // If this is a full file range, it encompasses everything
+            if existing_start.is_none() && existing_end.is_none() {
+                return; // Already tracking the entire file, no need to add more ranges
+            }
+            
+            let existing_start = existing_start.unwrap_or(1);
+            let existing_end = existing_end.unwrap_or(usize::MAX);
+            
+            // Check if ranges overlap or are adjacent
+            // Two ranges [a,b] and [c,d] overlap if max(a,c) <= min(b,d) + 1
+            // The +1 allows for adjacent ranges to be merged
+            if std::cmp::max(new_start, existing_start) <= std::cmp::min(new_end, existing_end) + 1 {
+                overlapping_indices.push(i);
+                min_start = std::cmp::min(min_start, existing_start);
+                max_end = std::cmp::max(max_end, existing_end);
+            }
+        }
+        
+        // If there are overlaps, remove the old ranges and add a merged one
+        if !overlapping_indices.is_empty() {
+            // Remove ranges from back to front to avoid index shifting
+            for &i in overlapping_indices.iter().rev() {
+                tracked_buffer.ranges.remove(i);
+            }
+            
+            // Add the merged range
+            let merged_start = if min_start == 1 { None } else { Some(min_start) };
+            let merged_end = if max_end == usize::MAX { None } else { Some(max_end) };
+            tracked_buffer.ranges.push((merged_start, merged_end));
+        } else {
+            // No overlaps, add the new range
+            tracked_buffer.ranges.push((start_line, end_line));
+        }
     }
 
     /// Mark a buffer as edited, so we can refresh it in the context
@@ -118,6 +188,15 @@ impl ActionLog {
 
     pub fn tracked_buffers(&self) -> impl ExactSizeIterator<Item = &Entity<Buffer>> {
         self.tracked_buffers.keys()
+    }
+    
+    /// Returns all line ranges for a tracked buffer
+    pub fn tracked_buffer_ranges(&self, buffer: &Entity<Buffer>) -> Vec<(Option<usize>, Option<usize>)> {
+        if let Some(tracked_buffer) = self.tracked_buffers.get(buffer) {
+            tracked_buffer.ranges.clone()
+        } else {
+            vec![(None, None)] // Default to full file
+        }
     }
 
     /// Notifies a diagnostics check
